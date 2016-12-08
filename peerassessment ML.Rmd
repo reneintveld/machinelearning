@@ -1,11 +1,11 @@
 ---
 title: "Peer assessment ML"
 author: "Rene int Veld"
-date: "Sunday, November 27, 2016"
+date: "Thursday, December 8, 2016"
 output: html_document
 ---
 
-Introduction project
+## Introduction project
 
 One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
 
@@ -19,7 +19,7 @@ More information is available from the website here: http://groupware.les.inf.pu
 The HAR (Human Activity Recognition) Dataset contains 5 classes (sitting-down, standing-up, standing, walking, and sitting) collected on 8 hours of activities of 4 healthy subjects. We also established a baseline performance index. 
 Read more: http://groupware.les.inf.puc-rio.br/har#ixzz4RhWds5wi
 
-Loading and preprocessing the data
+## Loading and preprocessing the data
 
 Data: The training data for this project are available here:
 https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
@@ -43,7 +43,6 @@ download.file(url.test, "test.csv")
 
 ```
 
-
 Now we have to read the csv files into R-files for further processing.
 
 ```{r}
@@ -53,6 +52,7 @@ act.test <- read.csv("test.csv")
 ```
 
 We know have a training database of 19662 observations and 160 variables and a testing database of only 20 observations.
+Note that the observations were made between 28 November and 5 December of 2011, for as well the training as the testing database: which means that we do not make a prediction of future observation (ie. now time series involved).
 We can get an overview of the 6 participants and the number of observations in both sets:
 
 ```{r}
@@ -60,9 +60,11 @@ table(act.train$user_name)
 table(act.test$user_name)
 
 ```
+
 We noted that all field names are the same, except for the last field.
 In the training set the last field is called Classe, this is the score describing how well the exercise was performed.
 In the test set this field is replaced by problem-id, this is the number of the observation of which a prediction has to be made of the score.
+This can be verified as follows:
 
 ```{r}
 table(act.train$classe)
@@ -71,16 +73,15 @@ table(act.test$problem_id)
 ```
 
 Now we have to predict the scores of the test set. We noted that many of the 160 columns do not have a valid result (eg. blank or NA or #DIV/0), especially in the test set, so they can be omitted from both sets. These are fields that represent statistical measures:
-amplitude
-avg
-kurtosis
-max
-min
-skewness
-stddev
-var
+-amplitude
+-avg
+-kurtosis
+-max
+-min
+-skewness
+-stddev
+-var
 All these fields starting with above terms have been deleted in the train and test set to create new sets on which we will make our prediction.
-
 
 
 ```{r}
@@ -98,11 +99,11 @@ Some variables are factors, we will transform them:
 - user_name has to be converted to 6 indicator-values
 - and the classe A-E, which we assume to be a Brazilian grade ranging from A to E, can be converted to a numeric between 0 and 10:
 Grade	Scale	Grade Description
-A	    9 - 10	Excelente (Exellent)	
-B	    7 - 9 	Bom (Good)	
-C	    5 - 7 	Aceptable (Average)	
-D	    3 - 5 	Suficiente (Sufficient)	
-E	    0 - 3	Defieciente (Fail)	
+A	    9 - 10	Excelente (Exellent) --> 10	
+B	    7 - 9 	Bom (Good) --> 8
+C	    5 - 7 	Aceptable (Average) --> 6	
+D	    3 - 5 	Suficiente (Sufficient)	--> 4
+E	    0 - 3	Defieciente (Fail)--> 2
 
 ```{r}
 train$new_window <- NULL
@@ -114,24 +115,75 @@ train$eurico <- ifelse(train$user_name=="eurico",1,0)
 train$jeremy <- ifelse(train$user_name=="jeremy",1,0)
 # train$pedro <- ifelse(train$user_name=="pedro",1,0) would cause dependency
 train$user_name <- NULL
-levels(train$classe) <- c(9.5, 8, 6, 4, 1.5)
+levels(train$classe) <- c(10, 8, 6, 4, 2)
 train$grade <- as.numeric(as.character(train$classe))
 train$classe<- NULL
 ```
 
+## Choosing a prediction method
 
 We can now choose a prediction method to predict the scores in the test set.
-But first have a look at the features.
+For this we need several libraries, eg. caret, etc. etc.
 
 ```{r}
 library(caret)
-featurePlot(x = train[,c("user_name","raw_timestamp_part_1")] ,y = train$grade, plot = "pairs")
-qplot(grade, yaw_arm, color=user_name, data = train)
+library(AppliedPredictiveModeling)
+library(CORElearn)
+library(e1071)
+library(rattle)
+library(rpart.plot)
+library(ElemStatLearn)
+library(pgmm)
+library(rpart)
+library(gbm)
+library(lubridate)
+library(forecast)
+library(ggplot2)
+library(ISLR)
+```
+
+First we will do some Cross Validation.
+For this we will split the train-set in a training and a testing set (the latter is not the test set on which we will make our final predictions).
+We will build the model on the training set and then evaluate the model based on the testing set.
+The predicted values are continous - for instance 8.0326 - and we need to transform these values back into a integer representing a grade, ie. 2,4,6,8,10.
+
+```{r}
+
+inTrain <- createDataPartition(y=train$grade,
+                               p=0.75, list=FALSE)
+
+training <- train[inTrain,]
+testing <- train[-inTrain,]
+
+set.seed(32343)
+
+# use Generalized Linear Model
+modelFit <- train(grade~ .,method="glm",data=training)
+modelFit
+
+pred.raw <- predict(modelFit, newdata=testing)
+pred <- round(pred.raw/2)*2
+
+# the transformation from pred.raw to pred is to turn the continuous estimation in a integer representing a grade, ie. 2,4,6,8,10
+
+table(pred) 
+
+table(testing$grade)
 
 ```
 
+The prediction is almost 100% if you look at the distribution. We can plot the individual raw predictions versus the real grades in a scatter diagram. From the diagram you can see that there are only two outliers in the data, where the raw prediction is between 6 and 7 and this is estimated as grade 6 which in reality lead to a grade 8.
 
-Now try the glm-method
+Furthermore we note that there is a strange discontinuity in the raw predictions resembling the real grads, which could point into the direction of overfitting. Normally you would expect a continuous result between 0 and 10. However, another possibility is that the exercises are extended until a clear score has been established (maybe a bit far-fetched).
+
+```{r}
+graph.data <- data.frame(testing$grade,pred.raw)
+qplot(testing.grade, pred.raw, data=graph.data)
+```
+
+## Final prediction
+
+We can do now the prediction of the final test set with the glm-method
 
 ```{r}
 # use Generalized Linear Model
@@ -139,57 +191,17 @@ modelFit <- train(grade ~ .,method="glm", data=train)
 modelFit
 
 # use Generalized Linear Model with preprocessing
-modelFit <- train(grade ~ .,method="glm", preProcess="pca", data=train)
-modelFit
+# modelFit <- train(grade ~ .,method="glm", preProcess="pca", data=train)
+# modelFit
 
 # use Random Forest Model
 # modelFit <- train(grade ~ .,method="rf",data=train) does no work because 5 or fewer unique values (grades)
-
-
-
-
 ```
-So far the second part of the assessment.
-The third part:
 
-Imputing missing values
+We can see that the glm method with pre-processing is less accurate than without, so we will prefer the glm method without pre-processing.
 
-There are a number of days/intervals where there are missing values (coded as NA). The presence of missing days may introduce bias into some calculations or summaries of the data. 
+We also tried the random forest method, but this method does not work with only 5 possible outcomes (the 5 possible grades). We tried some other models like lasso and lm, but none of them had a lowere RMSE than the glm-method.
 
-We calculated and reported the total number of missing values in the dataset, it appears that if data is missing, then the data of the whole day is missing.
-More days in November are missing than days in October.
+## Conclusion
 
-As it is not clear how to fill the data of the missing days, we take the values of the mean for that 5-minute interval.
-
-We created a new dataset that is equal to the original dataset but with the missing data filled in as explained
-
-We made a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. The values differ from the estimates from the first part of the assignment in the sense that median is now the same as the mean. This can be explained by adding a lot of avarage values. The mean has not changed, which was to be expected. The impact of imputing missing data on the estimates of the total daily number of steps is very limited.
-
-```{r}
-
-act3 <- subset(act1, is.na(steps))
-act3$instance = 1
-norecords = group_by(act3, date)
-norecords = summarise(norecords, 
-                       number=sum(instance))
-norecords$day <- weekdays(as.Date(norecords$date))
-print(norecords)
-
-act4 <- merge(act3, stepintervals, by= "interval")
-
-act4$step <- act4$avg
-act2$step <- act2$steps
-act4 <- act4[c("interval","date","step")]
-act2 <- act2[c("interval","date","step")]
-act5 <- rbind(act4,act2)
-
-stepsaday = group_by(act5, date)
-stepsaday = summarise(stepsaday, 
-                       sumstep = sum(step))
-hist(stepsaday$sumstep, xlab="number of steps per day", ylab="number of days", main = "Revised histogram of the steps per day")
-mean(stepsaday$sumstep)
-median(stepsaday$sumstep)
-
-
-```
-This concludes part 3; I did not have time for part 4 :()
+We can conclude that the prediction made might be too good, ie. could be overfitting, so that the results on the final test set could be a bit disappointing.
