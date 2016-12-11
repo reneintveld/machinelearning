@@ -1,8 +1,10 @@
 ---
 title: "Peer assessment ML"
 author: "Rene int Veld"
-date: "Thursday, December 8, 2016"
-output: html_document
+date: "Sunday, December 11, 2016"
+output:
+  html_document: default
+  word_document: default
 ---
 
 ## Introduction project
@@ -12,7 +14,7 @@ One thing that people regularly do is quantify how much of a particular activity
 In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants in an experiment, and then predict the manner in which they did their exercises. This is the "classe" variable in the training set. We will use any of the other variables to predict with. Underneath we will be describing how we built our model, how we used cross validation, and what is the expected out of sample error is, and why we made the choices we have made. 
 Furthermore, we will use your prediction model to predict 20 different test cases.
 
-Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways (A,..,E). 
 More information is available from the website here: http://groupware.les.inf.puc-rio.br/har 
 (see the section on the Weight Lifting Exercise Dataset).
 
@@ -51,19 +53,12 @@ act.test <- read.csv("test.csv")
 
 ```
 
-We know have a training database of 19662 observations and 160 variables and a testing database of only 20 observations.
+We know have a training database of 19,662 observations and 160 variables and a testing database of only 20 observations.
 Note that the observations were made between 28 November and 5 December of 2011, for as well the training as the testing database: which means that we do not make a prediction of future observation (ie. now time series involved).
-We can get an overview of the 6 participants and the number of observations in both sets:
-
-```{r}
-table(act.train$user_name)
-table(act.test$user_name)
-
-```
 
 We noted that all field names are the same, except for the last field.
-In the training set the last field is called Classe, this is the score describing how well the exercise was performed.
-In the test set this field is replaced by problem-id, this is the number of the observation of which a prediction has to be made of the score.
+In the training set the last field is called ´classe´, this is the description of how the exercise was performed.
+In the test set this field is replaced by problem-id, this is the number of the observation of which a prediction has to be made of the method.
 This can be verified as follows:
 
 ```{r}
@@ -72,7 +67,7 @@ table(act.test$problem_id)
 
 ```
 
-Now we have to predict the scores of the test set. We noted that many of the 160 columns do not have a valid result (eg. blank or NA or #DIV/0), especially in the test set, so they can be omitted from both sets. These are fields that represent statistical measures:
+Now we have to predict the methods of the test set. We noted that many of the 160 columns do not have a valid result (eg. blank or NA or #DIV/0), especially in the test set, so they can be omitted from both sets. These are fields that represent statistical measures:
 -amplitude
 -avg
 -kurtosis
@@ -82,126 +77,138 @@ Now we have to predict the scores of the test set. We noted that many of the 160
 -stddev
 -var
 All these fields starting with above terms have been deleted in the train and test set to create new sets on which we will make our prediction.
-
+Furthermore we have to eliminate all variables that are not fit to predict which start with:
+- cvt(d_timestamp, is already presented in the raw data)
+- new(_window, almost always the same value)
+And last but not least the record number X has to be removed (highly correlated with classe!).
 
 ```{r}
 x <- names(act.train)
-fields.to.select <- subset(x, ! substr(x[],1,3) %in% c("amp","avg","kur","max","min","ske","std","var"))
+fields.to.select <- subset(x, ! substr(x[],1,3) %in% c("amp","avg","kur","max","min","ske","std","var","cvt","new","num","raw"))
 train <- subset(act.train, select = fields.to.select)
+train$X <- NULL
 
 ```
 
-This way we only analyse the 60 relevant fields for our prediction.
+This way we only analyse the 53 relevant fields for our prediction.
+Note that there is only one factor variable: the classe A-E, which we have to predict.
 
-Some variables are factors, we will transform them:
-- new_window is a almost zero variable, we will remove this
-- cvtd_timestamp is based on the raw_timestramps, we can remove this
-- user_name has to be converted to 6 indicator-values
-- and the classe A-E, which we assume to be a Brazilian grade ranging from A to E, can be converted to a numeric between 0 and 10:
-Grade	Scale	Grade Description
-A	    9 - 10	Excelente (Exellent) --> 10	
-B	    7 - 9 	Bom (Good) --> 8
-C	    5 - 7 	Aceptable (Average) --> 6	
-D	    3 - 5 	Suficiente (Sufficient)	--> 4
-E	    0 - 3	Defieciente (Fail)--> 2
-
-```{r}
-train$new_window <- NULL
-train$cvtd_timestamp <- NULL
-train$adelmo <- ifelse(train$user_name=="adelmo",1,0)
-train$carlitos <- ifelse(train$user_name=="carlitos",1,0)
-train$charles <- ifelse(train$user_name=="charles",1,0)
-train$eurico <- ifelse(train$user_name=="eurico",1,0)
-train$jeremy <- ifelse(train$user_name=="jeremy",1,0)
-# train$pedro <- ifelse(train$user_name=="pedro",1,0) would cause dependency
-train$user_name <- NULL
-levels(train$classe) <- c(10, 8, 6, 4, 2)
-train$grade <- as.numeric(as.character(train$classe))
-train$classe<- NULL
-```
 
 ## Choosing a prediction method
 
-We can now choose a prediction method to predict the scores in the test set.
-For this we need several libraries, eg. caret, etc. etc.
+We can now choose a prediction method to predict the methods in the test set.
+To be sure our analysis runs smoothly, we nee several libraries, such as the caret library.
 
 ```{r}
 library(caret)
-library(AppliedPredictiveModeling)
-library(CORElearn)
-library(e1071)
-library(rattle)
-library(rpart.plot)
-library(ElemStatLearn)
-library(pgmm)
 library(rpart)
-library(gbm)
-library(lubridate)
-library(forecast)
 library(ggplot2)
-library(ISLR)
+library(MASS)
 ```
 
-First we will do some Cross Validation.
-For this we will split the train-set in a training and a testing set (the latter is not the test set on which we will make our final predictions).
-We will build the model on the training set and then evaluate the model based on the testing set.
-The predicted values are continous - for instance 8.0326 - and we need to transform these values back into a integer representing a grade, ie. 2,4,6,8,10.
+First we will make a picture of the data, based on 2 random variables.
 
 ```{r}
 
-inTrain <- createDataPartition(y=train$grade,
-                               p=0.75, list=FALSE)
+
+qplot(classe, accel_belt_y, color=user_name, data=train)
+
+```
+
+The picture shows that there is no clear lineair indication of how to predict. The only clear thing we see is that classe E can be found in high but also in low values of the random chosen variable. And that this caused by Jeremy.
+
+Now we will do some Cross Validation.
+For this we will split the train-set in a training and a testing set (the latter is not the test set on which we will make our final predictions).
+We will build the model on the training set and then evaluate the model based on the testing set.
+
+
+```{r}
+
+set.seed(32366)
+
+inTrain <- createDataPartition(y=train$classe,
+                               p=0.9, list=FALSE)
 
 training <- train[inTrain,]
 testing <- train[-inTrain,]
-
-set.seed(32343)
-
-# use Generalized Linear Model
-modelFit <- train(grade~ .,method="glm",data=training)
-modelFit
-
-pred.raw <- predict(modelFit, newdata=testing)
-pred <- round(pred.raw/2)*2
-
-# the transformation from pred.raw to pred is to turn the continuous estimation in a integer representing a grade, ie. 2,4,6,8,10
-
-table(pred) 
-
-table(testing$grade)
-
 ```
-
-The prediction is almost 100% if you look at the distribution. We can plot the individual raw predictions versus the real grades in a scatter diagram. From the diagram you can see that there are only two outliers in the data, where the raw prediction is between 6 and 7 and this is estimated as grade 6 which in reality lead to a grade 8.
-
-Furthermore we note that there is a strange discontinuity in the raw predictions resembling the real grads, which could point into the direction of overfitting. Normally you would expect a continuous result between 0 and 10. However, another possibility is that the exercises are extended until a clear score has been established (maybe a bit far-fetched).
 
 ```{r}
-graph.data <- data.frame(testing$grade,pred.raw)
-qplot(testing.grade, pred.raw, data=graph.data)
+t1 <- Sys.time()
+modelFit <- train(classe~ .,method="rpart",data=training)
+t2 <- Sys.time()
+t2-t1
+modelFit
+pred <- predict(modelFit, newdata=testing)
+confusionMatrix(pred, testing$classe)
+
 ```
+
+This prediction is quite fast (18 secs) but not very accurate (52%). 
+From the confusion Matrix you can see that only if the predicted value is E, this probably is true, but that also other proedictions occur when the real value is E.
+
+This means if we would use the rpart method, we would predic only about 50% correct. So we need to improve.
+
+We might use the same prediction, but now with pre-processing.
+
+```{r}
+t1 <- Sys.time()
+modelFit <- train(classe~ .,method="rpart", preProcess="pca", data=training)
+t2 <- Sys.time()
+t2-t1
+modelFit
+```
+
+The  clearly did not help us further: it takes more time and the accuracy is worse.
+We now use the lda-model.
+
+```{r}
+t1 <- Sys.time()
+modelFit <- train(classe~ .,method="lda", data=training)
+t2 <- Sys.time()
+t2-t1
+modelFit
+pred <- predict(modelFit, newdata=testing)
+confusionMatrix(pred,testing$classe)
+```
+
+This is pretty good, the model takes only 12 seconds and the accuracy is 73%. Unfortunately this is again not good enough, for passing the test we need at least 80%. So now we will try random forest, which can take a long time, as appeared from some preliminary work.
+
+```{r}
+t1 <- Sys.time()
+modelFit <- train(classe~ .,method="rf", data=training)
+t2 <- Sys.time()
+t2-t1
+modelFit
+pred <- predict(modelFit, newdata=testing)
+confusionMatrix(pred,testing$classe)
+```
+
+The random forest model without pre-processing scores 99,1% accuracy. It took also quite a time to process: 1.5 hours.
+NB. The glm-model does not work (too many errors).
+The gbm-model is very slow, might not work, i have stopped it.
+The mda-model gives many errors, with pre-processing it scores only 55% accuracy.
+Based on this we choose the rf-model without pre-processing.
 
 ## Final prediction
 
-We can do now the prediction of the final test set with the glm-method
+We can do now use the prediction model to predict the final test set.
+A slightly better result could be obtained by running the rf-method again on the whole set, but because of the time it takes to re-run and the expected improvement (not too much), we did not perform this.
 
 ```{r}
-# use Generalized Linear Model
-modelFit <- train(grade ~ .,method="glm", data=train)
-modelFit
-
-# use Generalized Linear Model with preprocessing
-# modelFit <- train(grade ~ .,method="glm", preProcess="pca", data=train)
-# modelFit
-
-# use Random Forest Model
-# modelFit <- train(grade ~ .,method="rf",data=train) does no work because 5 or fewer unique values (grades)
+# modelFit2 <- train(classe ~ ., method="rf", data=train)
 ```
+Now we have to clean the final test set just as the training set.
+With the rf-model we have answered the Quiz, and the result was as expected.
 
-We can see that the glm method with pre-processing is less accurate than without, so we will prefer the glm method without pre-processing.
-
-We also tried the random forest method, but this method does not work with only 5 possible outcomes (the 5 possible grades). We tried some other models like lasso and lm, but none of them had a lowere RMSE than the glm-method.
-
+```{r}
+x <- names(act.test)
+fields.to.select <- subset(x, ! substr(x[],1,3) %in% c("amp","avg","kur","max","min","ske","std","var","cvt","new","num","raw"))
+test <- subset(act.test, select = fields.to.select)
+test$X <- NULL
+pred <- predict(modelFit, newdata=test)
+pred
+```
 ## Conclusion
 
-We can conclude that the prediction made might be too good, ie. could be overfitting, so that the results on the final test set could be a bit disappointing.
+Because of the number of the variables and the spread in the results it is quite difficult to predict which prediction method works best. After we first had a reasonable result of 73% with the Linear Discriminant Analysis we could hugely improve with the random forest method, although this is around 1000x slower. So a clear pay off between speed and accuracy.
